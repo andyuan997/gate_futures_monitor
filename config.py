@@ -16,8 +16,8 @@ class GateFuturesConfig:
     CHECK_INTERVAL = 300  # 5分钟
     
     # Telegram 配置
-    TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # 请替换为你的bot token
-    TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"      # 请替换为你的chat ID
+    TELEGRAM_BOT_TOKEN = "7656095262:AAFzmStSbksl91_RNcURVHoD3SgqVlJqQEg"  # 请替换为你的bot token
+    TELEGRAM_CHAT_ID = "6572421192"      # 请替换为你的chat ID
     
     # 通知消息模板
     NOTIFICATION_TEMPLATE = """
