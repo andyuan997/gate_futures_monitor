@@ -39,15 +39,29 @@ class GateFuturesScraper:
             playwright = await async_playwright().start()
             
             # 採用 GateioWebScraper 的成功設定
-            # 動態查找瀏覽器路徑
+            # 強制查找瀏覽器路徑
             import glob
             import os
+            import subprocess
+            
+            # 嘗試強制安裝瀏覽器
+            try:
+                logger.info("嘗試強制安裝瀏覽器...")
+                result = subprocess.run(['playwright', 'install', 'chromium'], 
+                                     capture_output=True, text=True, timeout=300)
+                if result.returncode == 0:
+                    logger.info("瀏覽器安裝成功")
+                else:
+                    logger.warning(f"瀏覽器安裝失敗: {result.stderr}")
+            except Exception as e:
+                logger.warning(f"瀏覽器安裝異常: {e}")
             
             # 查找可能的瀏覽器路徑
             possible_paths = [
                 "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
                 "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chromium",
-                "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome-wrapper"
+                "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome-wrapper",
+                "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome-sandbox"
             ]
             
             browser_path = None
@@ -59,8 +73,19 @@ class GateFuturesScraper:
                     break
             
             if not browser_path:
-                logger.warning("未找到瀏覽器路徑，使用默認路徑")
-                browser_path = None
+                logger.warning("未找到瀏覽器路徑，嘗試使用系統路徑")
+                # 嘗試使用系統安裝的瀏覽器
+                system_paths = [
+                    "/usr/bin/chromium-browser",
+                    "/usr/bin/chromium",
+                    "/usr/bin/google-chrome",
+                    "/usr/bin/chrome"
+                ]
+                for sys_path in system_paths:
+                    if os.path.exists(sys_path):
+                        browser_path = sys_path
+                        logger.info(f"使用系統瀏覽器: {browser_path}")
+                        break
             
             self.browser = await playwright.chromium.launch(
                 headless=True,  # 改為無頭模式
