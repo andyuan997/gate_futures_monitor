@@ -1,104 +1,146 @@
 """
-Gate.io 期貨上市爬蟲模組
-使用 requests + BeautifulSoup 進行網頁爬取
+Gate.io 期貨上市監控爬蟲
+使用 Playwright 來爬取 Gate.io 的期貨上市公告
 """
 
-import os
-import json
-import re
 import asyncio
+import json
+import os
 from datetime import datetime
-from typing import List, Dict, Any
-import requests
-from bs4 import BeautifulSoup
+from typing import List, Dict, Any, Optional
+
+from playwright.async_api import async_playwright, Browser, Page
+from config import GateFuturesConfig
 from logger import setup_gate_logger
+import re
 
 logger = setup_gate_logger(__name__)
 
 
 class GateFuturesScraper:
-    """Gate.io 期貨上市爬蟲"""
+    """Gate.io 期貨上市爬蟲類"""
 
     def __init__(self):
         """初始化爬蟲"""
-        self.session = requests.Session()
-        self.history_file = os.path.join("data", "futures_history.json")
-        
-        # 設置請求頭，模擬真實瀏覽器
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-        })
+        self.browser: Optional[Browser] = None
+        self.page: Optional[Page] = None
+        self.context: Optional[Any] = None  # 新增 context 屬性
         
         # 確保數據目錄存在
-        os.makedirs("data", exist_ok=True)
+        os.makedirs(GateFuturesConfig.DATA_DIR, exist_ok=True)
+        
+        # 歷史數據文件路徑
+        self.history_file = os.path.join(GateFuturesConfig.DATA_DIR, GateFuturesConfig.HISTORY_FILE)
+
+    async def _setup_browser(self):
+        """初始化瀏覽器"""
+        try:
+            logger.info("正在初始化瀏覽器...")
+            playwright = await async_playwright().start()
+            
+            # 採用 GateioWebScraper 的成功設定
+            self.browser = await playwright.chromium.launch(
+                channel='chrome',
+                headless=True,  # 改為無頭模式
+                args=['--no-sandbox']
+            )
+            
+            # 創建上下文，設定語言和時區
+            self.context = await self.browser.new_context(
+                locale="zh-TW",
+                timezone_id="Asia/Taipei",
+                user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                            "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"),
+                extra_http_headers={"Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"}
+            )
+            
+            self.page = await self.context.new_page()
+            
+            # gate.com（Next.js）常用 NEXT_LOCALE，提前設 localStorage
+            await self.page.add_init_script("try { localStorage.setItem('NEXT_LOCALE', 'zh-tw'); } catch(e) {}")
+            
+            # 同時對 gate.io / gate.com 都設定語言 cookie
+            await self.context.add_cookies([
+                {"name": "lang", "value": "zh-tw", "domain": ".gate.io", "path": "/"},
+                {"name": "lang", "value": "zh-tw", "domain": ".gate.com", "path": "/"}
+            ])
+            
+            logger.info("瀏覽器初始化完成")
+        except Exception as e:
+            logger.error(f"瀏覽器初始化失敗: {e}")
+            raise
+
+    async def _cleanup(self):
+        """清理資源"""
+        try:
+            if self.page:
+                await self.page.close()
+            if self.context:
+                await self.context.close()
+            if self.browser:
+                await self.browser.close()
+            logger.info("瀏覽器資源清理完成")
+        except Exception as e:
+            logger.error(f"清理資源時發生錯誤: {e}")
 
     async def scrape_futures_listings(self) -> List[Dict[str, Any]]:
-        """爬取期貨上市信息
-        
-        Returns:
-            List[Dict[str, Any]]: 期貨上市信息列表
-        """
+        """爬取期貨上市列表"""
         try:
-            logger.info("開始訪問頁面: https://www.gate.com/zh-tw/announcements/newfutureslistings")
+            if not self.page:
+                await self._setup_browser()
             
-            # 發送請求
-            response = self.session.get(
-                "https://www.gate.com/zh-tw/announcements/newfutureslistings",
-                timeout=30
-            )
-            response.raise_for_status()
+            # 訪問期貨上市頁面
+            futures_url = "https://www.gate.com/zh-tw/announcements/newfutureslistings"
+            logger.info(f"開始訪問頁面: {futures_url}")
+            await self.page.goto(futures_url, timeout=60000, wait_until="domcontentloaded")
             
-            # 解析 HTML
-            soup = BeautifulSoup(response.content, 'lxml')
+            # 等待頁面加載
+            await asyncio.sleep(3)
             
-            # 查找所有公告鏈接
+            # 使用 GateioWebScraper 的成功選擇器
             selector = "a[href*='/announcements/article/']"
-            links = soup.select(selector)
+            title_selector = "p"
+            
+            try:
+                await self.page.wait_for_selector(selector, timeout=10000)
+                logger.info("找到目標選擇器")
+            except Exception as e:
+                logger.warning(f"等待選擇器超時: {e}")
+            
+            # 提取數據
+            links = await self.page.query_selector_all(selector)
             logger.info(f"找到 {len(links)} 個鏈接元素")
             
             futures_data = []
             for link in links:
-                try:
-                    # 查找標題元素
-                    title_el = link.select_one("p")
-                    href = link.get("href")
+                title_el = await link.query_selector(title_selector)
+                href = await link.get_attribute("href")
+                
+                if title_el and href:
+                    title = await title_el.inner_text()
+                    title = title.strip()
+                    logger.info(f"找到公告: {title}")
                     
-                    if title_el and href:
-                        title = title_el.get_text(strip=True)
-                        logger.info(f"找到公告: {title}")
+                    # 檢查是否包含期貨相關關鍵詞
+                    has_futures_keywords = any(keyword in title for keyword in 
+                        ['永續合約', '上線', 'Contract', 'Futures', 'Perpetual'])
+                    
+                    if has_futures_keywords:
+                        # 檢測語言（優先中文）
+                        is_chinese = bool(re.search(r'[\u4e00-\u9fff]', title))
+                        is_english = bool(re.search(r'[a-zA-Z]', title))
                         
-                        # 檢查是否包含期貨相關關鍵詞
-                        has_futures_keywords = any(keyword in title for keyword in
-                            ['永續合約', '上線', 'Contract', 'Futures', 'Perpetual'])
-                        
-                        if has_futures_keywords:
-                            # 檢測語言（優先中文）
-                            is_chinese = bool(re.search(r'[\u4e00-\u9fff]', title))
-                            is_english = bool(re.search(r'[a-zA-Z]', title))
-                            
-                            # 構建完整 URL
-                            if href.startswith('/'):
-                                full_url = f"https://www.gate.com{href}"
-                            else:
-                                full_url = href
-                            
-                            futures_data.append({
-                                'title': title,
-                                'url': full_url,
-                                'article_id': href.split('/')[-1] if href else '',
-                                'language': 'zh' if is_chinese else ('en' if is_english else 'unknown'),
-                                'element_type': 'a',
-                                'class_name': link.get('class', [''])[0] if link.get('class') else ''
-                            })
-                            
-                except Exception as e:
-                    logger.warning(f"處理鏈接時出錯: {e}")
-                    continue
+                        futures_data.append({
+                            'title': title,
+                            'url': 'https://www.gate.com' + href,
+                            'article_id': href.split('/')[-1] if href else '',
+                            'language': 'zh' if is_chinese else ('en' if is_english else 'unknown'),
+                            'element_type': 'a',
+                            'class_name': await link.get_attribute('class') or ''
+                        })
+            
+            # 按語言排序：中文優先
+            futures_data.sort(key=lambda x: (x['language'] != 'zh', x['language'] != 'en'))
             
             logger.info(f"成功提取 {len(futures_data)} 條期貨上市信息")
             
@@ -157,11 +199,11 @@ class GateFuturesScraper:
             logger.error(f"檢查新上市信息失敗: {e}")
             return True  # 出錯時視為新數據
 
-    def get_new_listings(self, futures_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def get_new_listings(self, current_listings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """獲取新的期貨上市信息（與歷史數據比較）
         
         Args:
-            futures_data: 當前爬取到的期貨上市列表
+            current_listings: 當前爬取到的期貨上市列表
             
         Returns:
             List[Dict[str, Any]]: 新的期貨上市信息列表
@@ -169,7 +211,7 @@ class GateFuturesScraper:
         try:
             if not os.path.exists(self.history_file):
                 logger.info("歷史文件不存在，所有數據都視為新數據")
-                return futures_data
+                return current_listings
             
             # 讀取歷史數據
             with open(self.history_file, 'r', encoding='utf-8') as f:
@@ -188,7 +230,7 @@ class GateFuturesScraper:
             
             # 找出新數據
             new_listings = []
-            for item in futures_data:
+            for item in current_listings:
                 title = item.get('title', '').strip()
                 url = item.get('url', '').strip()
                 
@@ -208,7 +250,7 @@ class GateFuturesScraper:
             
         except Exception as e:
             logger.error(f"獲取新上市信息失敗: {e}")
-            return futures_data
+            return current_listings
 
     def save_to_history(self, futures_data: List[Dict[str, Any]]) -> None:
         """保存數據到歷史文件（只添加新數據）
@@ -257,13 +299,4 @@ class GateFuturesScraper:
             
         except Exception as e:
             logger.error(f"保存歷史數據失敗: {e}")
-
-    async def _cleanup(self):
-        """清理資源"""
-        try:
-            if self.session:
-                self.session.close()
-                logger.info("會話資源清理完成")
-        except Exception as e:
-            logger.error(f"清理資源時發生錯誤: {e}")
 
