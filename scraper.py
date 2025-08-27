@@ -40,7 +40,6 @@ class GateFuturesScraper:
             
             # 採用 GateioWebScraper 的成功設定
             self.browser = await playwright.chromium.launch(
-                channel='chrome',
                 headless=True,  # 改為無頭模式
                 args=['--no-sandbox']
             )
