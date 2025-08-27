@@ -41,7 +41,14 @@ class GateFuturesScraper:
             # 採用 GateioWebScraper 的成功設定
             self.browser = await playwright.chromium.launch(
                 headless=True,  # 改為無頭模式
-                args=['--no-sandbox']
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process'
+                ]
             )
             
             # 創建上下文，設定語言和時區
