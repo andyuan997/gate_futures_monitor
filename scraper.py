@@ -39,8 +39,32 @@ class GateFuturesScraper:
             playwright = await async_playwright().start()
             
             # 採用 GateioWebScraper 的成功設定
+            # 動態查找瀏覽器路徑
+            import glob
+            import os
+            
+            # 查找可能的瀏覽器路徑
+            possible_paths = [
+                "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+                "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chromium",
+                "/opt/render/.cache/ms-playwright/chromium-*/chrome-linux/chrome-wrapper"
+            ]
+            
+            browser_path = None
+            for path_pattern in possible_paths:
+                matches = glob.glob(path_pattern)
+                if matches:
+                    browser_path = matches[0]
+                    logger.info(f"找到瀏覽器路徑: {browser_path}")
+                    break
+            
+            if not browser_path:
+                logger.warning("未找到瀏覽器路徑，使用默認路徑")
+                browser_path = None
+            
             self.browser = await playwright.chromium.launch(
                 headless=True,  # 改為無頭模式
+                executable_path=browser_path,
                 args=[
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
