@@ -75,11 +75,17 @@ class TelegramBot:
             title = futures_data.get("title", "未知期貨")
             url = futures_data.get("url", "")
             
+            # 使用發送當下時間
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
             message = f"""
 🚀 <b>Gate.io 新期貨上市通知</b>
 
 📈 <b>新期貨:</b> {title}
-🔗 <b>詳情鏈接:</b> <a href="{url}">點擊查看詳情</a>
+🕐 <b>發送時間:</b> {current_time}
+
+🔗 <b>連結:</b> <a href="{url}">點擊查看</a>
 
 #GateIO #期貨 #新上市
             """.strip()
@@ -111,7 +117,21 @@ class TelegramBot:
             for i, futures in enumerate(futures_list[:10], 1):  # 最多顯示10個
                 title = futures.get("title", "未知期貨")
                 url = futures.get("url", "")
+                
+                # 處理日期顯示
+                discovered_at = futures.get("discovered_at", "")
+                date_display = ""
+                if discovered_at:
+                    try:
+                        from datetime import datetime
+                        dt = datetime.fromisoformat(discovered_at.replace('Z', '+00:00'))
+                        date_display = dt.strftime("%m-%d %H:%M")
+                    except:
+                        date_display = discovered_at[:16] if len(discovered_at) > 16 else discovered_at
+                
                 message += f"{i}. <b>{title}</b>\n"
+                if date_display:
+                    message += f"   🕐 {date_display}\n"
                 message += f"   🔗 <a href=\"{url}\">查看詳情</a>\n\n"
             
             if len(futures_list) > 10:

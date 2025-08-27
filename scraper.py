@@ -133,10 +133,10 @@ class GateFuturesScraper:
                         futures_data.append({
                             'title': title,
                             'url': 'https://www.gate.com' + href,
+                            'article_id': href.split('/')[-1] if href else '',
                             'language': 'zh' if is_chinese else ('en' if is_english else 'unknown'),
                             'element_type': 'a',
-                            'class_name': await link.get_attribute('class') or '',
-                            'scraped_at': datetime.now().isoformat()
+                            'class_name': await link.get_attribute('class') or ''
                         })
             
             # 按語言排序：中文優先
@@ -146,7 +146,7 @@ class GateFuturesScraper:
             
             # 顯示提取到的內容用於調試
             for i, item in enumerate(futures_data[:5]):
-                logger.info(f"提取項 {i+1}: {item.get('title', '')[:50]}...")
+                logger.info(f"提取項 {i+1}: {item.get('title', '')}")
                 logger.info(f"  URL: {item.get('url', '')}")
                 logger.info(f"  語言: {item.get('language', '')}")
                 logger.info(f"  元素類型: {item.get('element_type', '')}")
@@ -157,8 +157,107 @@ class GateFuturesScraper:
             logger.error(f"爬取期貨上市信息失敗: {e}")
             return []
 
-    def save_to_history(self, futures_data: List[Dict[str, Any]]):
-        """保存數據到歷史文件"""
+    def is_new_listing(self, item: Dict[str, Any]) -> bool:
+        """檢查單條數據是否為新的期貨上市
+        
+        Args:
+            item: 要檢查的期貨上市數據
+            
+        Returns:
+            bool: True 表示是新數據，False 表示已存在
+        """
+        try:
+            if not os.path.exists(self.history_file):
+                return True
+            
+            # 讀取歷史數據
+            with open(self.history_file, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+            
+            title = item.get('title', '').strip()
+            url = item.get('url', '').strip()
+            
+            if not title or not url:
+                return False
+            
+            # 創建唯一標識符
+            unique_id = f"{title}|{url}"
+            
+            # 檢查是否已存在
+            for existing in existing_data:
+                existing_title = existing.get('title', '').strip()
+                existing_url = existing.get('url', '').strip()
+                
+                if existing_title and existing_url:
+                    existing_unique_id = f"{existing_title}|{existing_url}"
+                    if existing_unique_id == unique_id:
+                        return False
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"檢查新上市信息失敗: {e}")
+            return True  # 出錯時視為新數據
+
+    def get_new_listings(self, current_listings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """獲取新的期貨上市信息（與歷史數據比較）
+        
+        Args:
+            current_listings: 當前爬取到的期貨上市列表
+            
+        Returns:
+            List[Dict[str, Any]]: 新的期貨上市信息列表
+        """
+        try:
+            if not os.path.exists(self.history_file):
+                logger.info("歷史文件不存在，所有數據都視為新數據")
+                return current_listings
+            
+            # 讀取歷史數據
+            with open(self.history_file, 'r', encoding='utf-8') as f:
+                existing_data = json.load(f)
+            
+            # 創建已知數據的集合，用於快速查找
+            # 只基於標題和URL進行比對
+            known_items = set()
+            for item in existing_data:
+                title = item.get('title', '').strip()
+                url = item.get('url', '').strip()
+                if title and url:
+                    # 創建唯一標識符（標題 + URL）
+                    unique_id = f"{title}|{url}"
+                    known_items.add(unique_id)
+            
+            # 找出新數據
+            new_listings = []
+            for item in current_listings:
+                title = item.get('title', '').strip()
+                url = item.get('url', '').strip()
+                
+                if title and url:
+                    # 創建唯一標識符
+                    unique_id = f"{title}|{url}"
+                    
+                    # 檢查是否為新數據
+                    if unique_id not in known_items:
+                        new_listings.append(item)
+                        logger.info(f"發現新的期貨上市: {title}")
+                    else:
+                        logger.debug(f"跳過已存在的期貨上市: {title}")
+            
+            logger.info(f"總共發現 {len(new_listings)} 條新的期貨上市信息")
+            return new_listings
+            
+        except Exception as e:
+            logger.error(f"獲取新上市信息失敗: {e}")
+            return current_listings
+
+    def save_to_history(self, futures_data: List[Dict[str, Any]]) -> None:
+        """保存數據到歷史文件（只添加新數據）
+        
+        Args:
+            futures_data: 要保存的期貨上市數據列表
+        """
         try:
             # 讀取現有歷史數據
             existing_data = []
@@ -166,42 +265,38 @@ class GateFuturesScraper:
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     existing_data = json.load(f)
             
-            # 添加新數據
+            # 創建已知數據的集合
+            known_items = set()
+            for item in existing_data:
+                title = item.get('title', '').strip()
+                url = item.get('url', '').strip()
+                if title and url:
+                    unique_id = f"{title}|{url}"
+                    known_items.add(unique_id)
+            
+            # 只添加新數據
+            added_count = 0
             for item in futures_data:
-                # 檢查是否已存在（基於標題和URL）
-                if not any(existing['title'] == item['title'] and existing['url'] == item['url'] 
-                          for existing in existing_data):
-                    existing_data.append(item)
+                title = item.get('title', '').strip()
+                url = item.get('url', '').strip()
+                
+                if title and url:
+                    unique_id = f"{title}|{url}"
+                    
+                    if unique_id not in known_items:
+                        # 添加新數據到歷史記錄
+                        existing_data.append(item)
+                        added_count += 1
+                        logger.debug(f"添加新數據: {title}")
+                    else:
+                        logger.debug(f"數據已存在，跳過: {title}")
             
             # 保存到文件
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(existing_data, f, ensure_ascii=False, indent=2)
             
-            logger.info(f"成功保存 {len(futures_data)} 條數據到歷史文件")
+            logger.info(f"成功添加 {added_count} 條新數據到歷史文件，總計 {len(existing_data)} 條")
             
         except Exception as e:
             logger.error(f"保存歷史數據失敗: {e}")
 
-    def get_new_listings(self, futures_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """獲取新的上市信息（與歷史數據比較）"""
-        try:
-            if not os.path.exists(self.history_file):
-                return futures_data
-            
-            # 讀取歷史數據
-            with open(self.history_file, 'r', encoding='utf-8') as f:
-                existing_data = json.load(f)
-            
-            # 找出新數據
-            new_listings = []
-            for item in futures_data:
-                if not any(existing['title'] == item['title'] and existing['url'] == item['url'] 
-                          for existing in existing_data):
-                    new_listings.append(item)
-            
-            logger.info(f"發現 {len(new_listings)} 條新的期貨上市信息")
-            return new_listings
-            
-        except Exception as e:
-            logger.error(f"獲取新上市信息失敗: {e}")
-            return futures_data

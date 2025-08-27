@@ -22,15 +22,4 @@ class GateFuturesConfig:
 
     # Telegram 配置
     TELEGRAM_BOT_TOKEN = "8178012778:AAFat7W2vy3c2biLwUlX2FI_P7yMRDLWo6c"  # 請替換為你的bot token
-    TELEGRAM_CHAT_ID = "909636319"      # 請替換為你的chat ID
-
-    # 通知消息模板
-    NOTIFICATION_TEMPLATE = """
-🚀 Gate.io 新期貨上市通知
-
-📈 新期貨: {symbol}
-📅 上市時間: {listing_time}
-🔗 詳情鏈接: {url}
-
-#GateIO #期貨 #新上市
-"""
+    TELEGRAM_CHAT_ID = "-1002986770063"      # 請替換為你的chat ID
