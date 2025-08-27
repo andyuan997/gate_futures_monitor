@@ -96,7 +96,14 @@ class GateFuturesScraper:
                     '--disable-gpu',
                     '--no-first-run',
                     '--no-zygote',
-                    '--single-process'
+                    '--single-process',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-field-trial-config',
+                    '--disable-ipc-flooding-protection'
                 ]
             )
             
@@ -147,20 +154,40 @@ class GateFuturesScraper:
             # 訪問期貨上市頁面
             futures_url = "https://www.gate.com/zh-tw/announcements/newfutureslistings"
             logger.info(f"開始訪問頁面: {futures_url}")
-            await self.page.goto(futures_url, timeout=60000, wait_until="domcontentloaded")
+            await self.page.goto(futures_url, timeout=120000, wait_until="networkidle")
             
-            # 等待頁面加載
-            await asyncio.sleep(3)
+            # 等待頁面加載 - 增加等待時間
+            logger.info("等待頁面完全加載...")
+            await asyncio.sleep(5)
             
             # 使用 GateioWebScraper 的成功選擇器
             selector = "a[href*='/announcements/article/']"
             title_selector = "p"
             
+            # 增加等待時間，並嘗試多種等待策略
             try:
-                await self.page.wait_for_selector(selector, timeout=10000)
+                # 首先等待頁面基本加載
+                await self.page.wait_for_load_state("networkidle", timeout=30000)
+                logger.info("頁面網絡加載完成")
+                
+                # 等待選擇器出現
+                await self.page.wait_for_selector(selector, timeout=30000)
                 logger.info("找到目標選擇器")
+                
+                # 額外等待確保內容渲染完成
+                await asyncio.sleep(2)
+                
             except Exception as e:
                 logger.warning(f"等待選擇器超時: {e}")
+                # 嘗試等待更長時間
+                try:
+                    logger.info("嘗試額外等待...")
+                    await asyncio.sleep(5)
+                    await self.page.wait_for_selector(selector, timeout=20000)
+                    logger.info("額外等待後找到選擇器")
+                except Exception as e2:
+                    logger.error(f"最終等待失敗: {e2}")
+                    return []
             
             # 提取數據
             links = await self.page.query_selector_all(selector)
