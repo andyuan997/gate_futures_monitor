@@ -1,40 +1,71 @@
+"""
+日誌配置模組
+用於設定 Gate.io 期貨監控的日誌系統
+"""
+
 import logging
-import os
-from datetime import datetime
+import sys
+from config import GateFuturesConfig
+
 
 def setup_gate_logger(name: str) -> logging.Logger:
-    """设置 Gate.io 期货监控的日志记录器"""
+    """設定 Gate.io 期貨監控日誌器
     
-    # 创建日志目录
-    log_dir = "logs"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-    
-    # 创建日志记录器
+    Args:
+        name: 日誌器名稱（通常是模組名稱）
+        
+    Returns:
+        logging.Logger: 配置好的日誌器
+    """
+    # 創建日誌器
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
     
-    # 如果已经有处理器，不重复添加
+    # 如果日誌器已經配置過，直接返回
     if logger.handlers:
         return logger
     
-    # 创建文件处理器
-    log_file = os.path.join(log_dir, f"gate_futures_{datetime.now().strftime('%Y%m%d')}.log")
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    # 設定日誌級別
+    logger.setLevel(getattr(logging, GateFuturesConfig.LOG_LEVEL.upper()))
     
-    # 创建控制台处理器
-    console_handler = logging.StreamHandler()
+    # 創建控制台處理器
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
     
-    # 设置格式
-    formatter = logging.Formatter(
-        fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    file_handler.setFormatter(formatter)
+    # 創建文件處理器
+    try:
+        import os
+        os.makedirs(GateFuturesConfig.DATA_DIR, exist_ok=True)
+        log_file = os.path.join(GateFuturesConfig.DATA_DIR, "gate_futures.log")
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setLevel(logging.DEBUG)
+    except Exception as e:
+        print(f"無法創建日誌文件: {e}")
+        file_handler = None
+    
+    # 設定日誌格式
+    formatter = logging.Formatter(GateFuturesConfig.LOG_FORMAT)
     console_handler.setFormatter(formatter)
+    if file_handler:
+        file_handler.setFormatter(formatter)
     
-    # 添加处理器
-    logger.addHandler(file_handler)
+    # 添加處理器到日誌器
     logger.addHandler(console_handler)
+    if file_handler:
+        logger.addHandler(file_handler)
+    
+    # 防止日誌重複輸出
+    logger.propagate = False
     
     return logger
+
+
+def get_logger(name: str) -> logging.Logger:
+    """獲取日誌器的便捷函數
+    
+    Args:
+        name: 日誌器名稱
+        
+    Returns:
+        logging.Logger: 日誌器實例
+    """
+    return setup_gate_logger(name)

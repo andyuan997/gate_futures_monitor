@@ -1,31 +1,36 @@
+"""
+Gate.io 期貨上市監控配置
+"""
+
+
 class GateFuturesConfig:
-    """Gate.io 期货上市监控配置"""
-    
-    # 监控的网页URL
+    """Gate.io 期貨上市監控配置"""
+
+    # 監控的網頁URL
     MONITOR_URL = "https://www.gate.com/zh-tw/announcements/newfutureslistings"
-    
-    # 数据存储配置
+
+    # 數據存儲配置
     DATA_DIR = "data"
     HISTORY_FILE = "futures_history.json"
-    
-    # 日志配置
+
+    # 日誌配置
     LOG_LEVEL = "INFO"
     LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
-    
-    # 检查间隔（秒）
-    CHECK_INTERVAL = 300  # 5分钟
-    
+
+    # 檢查間隔（秒）
+    CHECK_INTERVAL = 300  # 5分鐘
+
     # Telegram 配置
-    TELEGRAM_BOT_TOKEN = "7656095262:AAFzmStSbksl91_RNcURVHoD3SgqVlJqQEg"  # 请替换为你的bot token
-    TELEGRAM_CHAT_ID = "6572421192"      # 请替换为你的chat ID
-    
+    TELEGRAM_BOT_TOKEN = "8178012778:AAFat7W2vy3c2biLwUlX2FI_P7yMRDLWo6c"  # 請替換為你的bot token
+    TELEGRAM_CHAT_ID = "909636319"      # 請替換為你的chat ID
+
     # 通知消息模板
     NOTIFICATION_TEMPLATE = """
-🚀 Gate.io 新期货上市通知
+🚀 Gate.io 新期貨上市通知
 
-📈 新期货: {symbol}
-📅 上市时间: {listing_time}
-🔗 详情链接: {url}
+📈 新期貨: {symbol}
+📅 上市時間: {listing_time}
+🔗 詳情鏈接: {url}
 
-#GateIO #期货 #新上市
+#GateIO #期貨 #新上市
 """
