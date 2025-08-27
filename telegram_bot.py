@@ -3,7 +3,8 @@ Telegram 機器人通知模組
 用於發送 Gate.io 期貨上市通知
 """
 
-import requests
+import urllib3
+import json
 import asyncio
 from typing import Dict, Any, Optional
 from config import GateFuturesConfig
@@ -25,6 +26,8 @@ class TelegramBot:
         self.bot_token = bot_token or GateFuturesConfig.TELEGRAM_BOT_TOKEN
         self.chat_id = chat_id or GateFuturesConfig.TELEGRAM_CHAT_ID
         self.base_url = f"https://api.telegram.org/bot{self.bot_token}"
+        # 禁用 SSL 警告
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     async def send_message(self, message: str) -> bool:
         """發送消息到 Telegram
@@ -43,12 +46,17 @@ class TelegramBot:
                 "parse_mode": "HTML"
             }
             
-            # 使用同步請求，在異步環境中運行
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, lambda: requests.post(url, json=data))
+            # 使用 urllib3 發送請求
+            http = urllib3.PoolManager()
+            response = http.request(
+                'POST',
+                url,
+                body=json.dumps(data),
+                headers={'Content-Type': 'application/json'}
+            )
             
-            if response.status_code == 200:
-                result = response.json()
+            if response.status == 200:
+                result = json.loads(response.data.decode('utf-8'))
                 if result.get("ok"):
                     logger.info("Telegram 消息發送成功")
                     return True
@@ -56,7 +64,7 @@ class TelegramBot:
                     logger.error(f"Telegram API 返回錯誤: {result}")
                     return False
             else:
-                logger.error(f"Telegram API 請求失敗，狀態碼: {response.status_code}")
+                logger.error(f"Telegram API 請求失敗，狀態碼: {response.status}")
                 return False
                         
         except Exception as e:
@@ -87,7 +95,7 @@ class TelegramBot:
 📈 <b>新期貨:</b> {title}
 🕐 <b>發送時間:</b> {current_time}
 
-🔗 <b>連結:</b> <a href="{url}">    點擊查看</a>
+🔗 <b>連結:</b> <a href="{url}">點擊查看</a>
 
 #GateIO #期貨 #新上市
             """.strip()
@@ -156,12 +164,12 @@ class TelegramBot:
         try:
             url = f"{self.base_url}/getMe"
             
-            # 使用同步請求，在異步環境中運行
-            loop = asyncio.get_event_loop()
-            response = await loop.run_in_executor(None, lambda: requests.get(url))
+            # 使用 urllib3 發送請求
+            http = urllib3.PoolManager()
+            response = http.request('GET', url)
             
-            if response.status_code == 200:
-                result = response.json()
+            if response.status == 200:
+                result = json.loads(response.data.decode('utf-8'))
                 if result.get("ok"):
                     bot_info = result.get("result", {})
                     bot_name = bot_info.get("first_name", "未知")
@@ -172,7 +180,7 @@ class TelegramBot:
                     logger.error(f"Telegram API 返回錯誤: {result}")
                     return False
             else:
-                logger.error(f"Telegram API 請求失敗，狀態碼: {response.status_code}")
+                logger.error(f"Telegram API 請求失敗，狀態碼: {response.status}")
                 return False
                         
         except Exception as e:
