@@ -1,22 +1,17 @@
 """
 Gate.io 期貨上市爬蟲模組
-使用 Selenium 進行網頁爬取
+使用 requests + BeautifulSoup 進行網頁爬取
 """
 
 import os
 import json
 import re
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+import requests
+from bs4 import BeautifulSoup
 from logger import setup_gate_logger
-import asyncio
 
 logger = setup_gate_logger(__name__)
 
@@ -26,63 +21,21 @@ class GateFuturesScraper:
 
     def __init__(self):
         """初始化爬蟲"""
-        self.browser = None
-        self.driver = None
+        self.session = requests.Session()
         self.history_file = os.path.join("data", "futures_history.json")
+        
+        # 設置請求頭，模擬真實瀏覽器
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        })
         
         # 確保數據目錄存在
         os.makedirs("data", exist_ok=True)
-
-    async def _setup_browser(self):
-        """初始化瀏覽器"""
-        try:
-            logger.info("正在初始化瀏覽器...")
-            
-            # 配置 Chrome 選項
-            chrome_options = Options()
-            chrome_options.add_argument('--no-sandbox')
-            chrome_options.add_argument('--disable-dev-shm-usage')
-            chrome_options.add_argument('--disable-gpu')
-            chrome_options.add_argument('--disable-extensions')
-            chrome_options.add_argument('--disable-background-timer-throttling')
-            chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-            chrome_options.add_argument('--disable-renderer-backgrounding')
-            chrome_options.add_argument('--disable-features=TranslateUI')
-            chrome_options.add_argument('--no-first-run')
-            chrome_options.add_argument('--no-default-browser-check')
-            chrome_options.add_argument('--disable-default-apps')
-            chrome_options.add_argument('--disable-sync')
-            chrome_options.add_argument('--metrics-recording-only')
-            chrome_options.add_argument('--disable-background-networking')
-            chrome_options.add_argument('--disable-component-update')
-            chrome_options.add_argument('--disable-domain-reliability')
-            
-            # 檢查是否在 Render 環境中
-            if os.environ.get('RENDER'):
-                logger.info("檢測到 Render 環境，使用容器化瀏覽器設定")
-                chrome_options.add_argument('--headless')
-                chrome_options.add_argument('--disable-dev-shm-usage')
-                chrome_options.add_argument('--no-sandbox')
-                chrome_options.add_argument('--disable-setuid-sandbox')
-            
-            # 設置用戶代理
-            chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36')
-            
-            # 自動下載和管理 ChromeDriver
-            service = Service(ChromeDriverManager().install())
-            
-            # 創建瀏覽器實例
-            self.driver = webdriver.Chrome(service=service, options=chrome_options)
-            
-            # 設置語言偏好
-            self.driver.execute_script("Object.defineProperty(navigator, 'language', {get: function() {return 'zh-TW';}});")
-            self.driver.execute_script("Object.defineProperty(navigator, 'languages', {get: function() {return ['zh-TW', 'zh', 'en'];}});")
-            
-            logger.info("瀏覽器初始化完成")
-            
-        except Exception as e:
-            logger.error(f"瀏覽器初始化失敗: {e}")
-            raise
 
     async def scrape_futures_listings(self) -> List[Dict[str, Any]]:
         """爬取期貨上市信息
@@ -91,38 +44,32 @@ class GateFuturesScraper:
             List[Dict[str, Any]]: 期貨上市信息列表
         """
         try:
-            if not self.driver:
-                await self._setup_browser()
-            
             logger.info("開始訪問頁面: https://www.gate.com/zh-tw/announcements/newfutureslistings")
             
-            # 訪問頁面
-            self.driver.get("https://www.gate.com/zh-tw/announcements/newfutureslistings")
+            # 發送請求
+            response = self.session.get(
+                "https://www.gate.com/zh-tw/announcements/newfutureslistings",
+                timeout=30
+            )
+            response.raise_for_status()
             
-            # 等待頁面加載
-            wait = WebDriverWait(self.driver, 20)
+            # 解析 HTML
+            soup = BeautifulSoup(response.content, 'lxml')
             
-            # 等待目標選擇器出現
+            # 查找所有公告鏈接
             selector = "a[href*='/announcements/article/']"
-            wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, selector)))
-            logger.info("找到目標選擇器")
-            
-            # 滾動頁面以加載更多內容
-            self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-            await asyncio.sleep(2)
-            
-            # 提取數據
-            links = self.driver.find_elements(By.CSS_SELECTOR, selector)
+            links = soup.select(selector)
             logger.info(f"找到 {len(links)} 個鏈接元素")
             
             futures_data = []
             for link in links:
                 try:
-                    title_el = link.find_element(By.CSS_SELECTOR, "p")
-                    href = link.get_attribute("href")
+                    # 查找標題元素
+                    title_el = link.select_one("p")
+                    href = link.get("href")
                     
                     if title_el and href:
-                        title = title_el.text.strip()
+                        title = title_el.get_text(strip=True)
                         logger.info(f"找到公告: {title}")
                         
                         # 檢查是否包含期貨相關關鍵詞
@@ -134,13 +81,19 @@ class GateFuturesScraper:
                             is_chinese = bool(re.search(r'[\u4e00-\u9fff]', title))
                             is_english = bool(re.search(r'[a-zA-Z]', title))
                             
+                            # 構建完整 URL
+                            if href.startswith('/'):
+                                full_url = f"https://www.gate.com{href}"
+                            else:
+                                full_url = href
+                            
                             futures_data.append({
                                 'title': title,
-                                'url': href,
+                                'url': full_url,
                                 'article_id': href.split('/')[-1] if href else '',
                                 'language': 'zh' if is_chinese else ('en' if is_english else 'unknown'),
                                 'element_type': 'a',
-                                'class_name': link.get_attribute('class') or ''
+                                'class_name': link.get('class', [''])[0] if link.get('class') else ''
                             })
                             
                 except Exception as e:
@@ -308,9 +261,9 @@ class GateFuturesScraper:
     async def _cleanup(self):
         """清理資源"""
         try:
-            if self.driver:
-                self.driver.quit()
-                logger.info("瀏覽器資源清理完成")
+            if self.session:
+                self.session.close()
+                logger.info("會話資源清理完成")
         except Exception as e:
             logger.error(f"清理資源時發生錯誤: {e}")
 
