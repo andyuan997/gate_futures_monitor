@@ -1,2 +1,2 @@
-playwright==1.37.0
-urllib3==1.26.18
+playwright==1.36.0
+urllib3==1.26.15
