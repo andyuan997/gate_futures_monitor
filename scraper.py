@@ -103,7 +103,35 @@ class GateFuturesScraper:
                     '--disable-backgrounding-occluded-windows',
                     '--disable-renderer-backgrounding',
                     '--disable-field-trial-config',
-                    '--disable-ipc-flooding-protection'
+                    '--disable-ipc-flooding-protection',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-default-apps',
+                    '--disable-sync',
+                    '--disable-translate',
+                    '--hide-scrollbars',
+                    '--mute-audio',
+                    '--no-default-browser-check',
+                    '--disable-component-update',
+                    '--disable-domain-reliability',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-renderer-backgrounding',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-client-side-phishing-detection',
+                    '--disable-component-update',
+                    '--disable-default-apps',
+                    '--disable-domain-reliability',
+                    '--disable-features=AudioServiceOutOfProcess',
+                    '--disable-hang-monitor',
+                    '--disable-prompt-on-repost',
+                    '--disable-sync',
+                    '--disable-web-resources',
+                    '--metrics-recording-only',
+                    '--no-first-run',
+                    '--safebrowsing-disable-auto-update',
+                    '--disable-features=VizDisplayCompositor'
                 ]
             )
             
@@ -154,7 +182,7 @@ class GateFuturesScraper:
             # 訪問期貨上市頁面
             futures_url = "https://www.gate.com/zh-tw/announcements/newfutureslistings"
             logger.info(f"開始訪問頁面: {futures_url}")
-            await self.page.goto(futures_url, timeout=120000, wait_until="networkidle")
+            await self.page.goto(futures_url, timeout=180000, wait_until="networkidle")
             
             # 等待頁面加載 - 增加等待時間
             logger.info("等待頁面完全加載...")
@@ -167,27 +195,47 @@ class GateFuturesScraper:
             # 增加等待時間，並嘗試多種等待策略
             try:
                 # 首先等待頁面基本加載
-                await self.page.wait_for_load_state("networkidle", timeout=30000)
+                logger.info("等待頁面網絡加載...")
+                await self.page.wait_for_load_state("networkidle", timeout=45000)
                 logger.info("頁面網絡加載完成")
                 
                 # 等待選擇器出現
-                await self.page.wait_for_selector(selector, timeout=30000)
+                logger.info("等待目標選擇器...")
+                await self.page.wait_for_selector(selector, timeout=45000)
                 logger.info("找到目標選擇器")
                 
                 # 額外等待確保內容渲染完成
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
                 
             except Exception as e:
                 logger.warning(f"等待選擇器超時: {e}")
-                # 嘗試等待更長時間
+                # 嘗試多種等待策略
                 try:
-                    logger.info("嘗試額外等待...")
+                    logger.info("嘗試等待 DOM 加載...")
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=30000)
                     await asyncio.sleep(5)
-                    await self.page.wait_for_selector(selector, timeout=20000)
-                    logger.info("額外等待後找到選擇器")
+                    
+                    # 嘗試滾動頁面來觸發懶加載
+                    logger.info("嘗試滾動頁面...")
+                    await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    await asyncio.sleep(2)
+                    await self.page.evaluate("window.scrollTo(0, 0)")
+                    await asyncio.sleep(2)
+                    
+                    # 再次嘗試等待選擇器
+                    await self.page.wait_for_selector(selector, timeout=30000)
+                    logger.info("滾動後找到選擇器")
+                    
                 except Exception as e2:
-                    logger.error(f"最終等待失敗: {e2}")
-                    return []
+                    logger.warning(f"滾動策略失敗: {e2}")
+                    try:
+                        logger.info("嘗試最終等待策略...")
+                        await asyncio.sleep(10)
+                        await self.page.wait_for_selector(selector, timeout=30000)
+                        logger.info("最終等待後找到選擇器")
+                    except Exception as e3:
+                        logger.error(f"所有等待策略都失敗: {e3}")
+                        return []
             
             # 提取數據
             links = await self.page.query_selector_all(selector)
