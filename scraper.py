@@ -19,7 +19,7 @@ logger = setup_gate_logger(__name__)
 
 class GateFuturesScraper:
     """Gate.io 期貨上市爬蟲類"""
-
+    
     def __init__(self):
         """初始化爬蟲"""
         self.browser: Optional[Browser] = None
@@ -31,7 +31,7 @@ class GateFuturesScraper:
         
         # 歷史數據文件路徑
         self.history_file = os.path.join(GateFuturesConfig.DATA_DIR, GateFuturesConfig.HISTORY_FILE)
-
+    
     async def _setup_browser(self):
         """初始化瀏覽器"""
         try:
@@ -140,8 +140,22 @@ class GateFuturesScraper:
                 locale="zh-TW",
                 timezone_id="Asia/Taipei",
                 user_agent=("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                            "(KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36"),
-                extra_http_headers={"Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8"}
+                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+                extra_http_headers={
+                    "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                    "Accept-Encoding": "gzip, deflate, br",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                    "Sec-Ch-Ua-Mobile": "?0",
+                    "Sec-Ch-Ua-Platform": '"Windows"',
+                    "Sec-Fetch-Dest": "document",
+                    "Sec-Fetch-Mode": "navigate",
+                    "Sec-Fetch-Site": "none",
+                    "Sec-Fetch-User": "?1",
+                    "Upgrade-Insecure-Requests": "1"
+                }
             )
             
             self.page = await self.context.new_page()
@@ -159,7 +173,7 @@ class GateFuturesScraper:
         except Exception as e:
             logger.error(f"瀏覽器初始化失敗: {e}")
             raise
-
+    
     async def _cleanup(self):
         """清理資源"""
         try:
@@ -172,7 +186,7 @@ class GateFuturesScraper:
             logger.info("瀏覽器資源清理完成")
         except Exception as e:
             logger.error(f"清理資源時發生錯誤: {e}")
-
+    
     async def scrape_futures_listings(self) -> List[Dict[str, Any]]:
         """爬取期貨上市列表"""
         try:
@@ -196,12 +210,12 @@ class GateFuturesScraper:
             try:
                 # 首先等待頁面基本加載
                 logger.info("等待頁面網絡加載...")
-                await self.page.wait_for_load_state("networkidle", timeout=45000)
+                await self.page.wait_for_load_state("networkidle", timeout=60000)
                 logger.info("頁面網絡加載完成")
                 
                 # 等待選擇器出現
                 logger.info("等待目標選擇器...")
-                await self.page.wait_for_selector(selector, timeout=45000)
+                await self.page.wait_for_selector(selector, timeout=60000)
                 logger.info("找到目標選擇器")
                 
                 # 額外等待確保內容渲染完成
@@ -212,27 +226,45 @@ class GateFuturesScraper:
                 # 嘗試多種等待策略
                 try:
                     logger.info("嘗試等待 DOM 加載...")
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=30000)
-                    await asyncio.sleep(5)
+                    await self.page.wait_for_load_state("domcontentloaded", timeout=45000)
+                    await asyncio.sleep(8)
                     
                     # 嘗試滾動頁面來觸發懶加載
                     logger.info("嘗試滾動頁面...")
-                    await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                    await asyncio.sleep(2)
-                    await self.page.evaluate("window.scrollTo(0, 0)")
-                    await asyncio.sleep(2)
+                    try:
+                        await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        await asyncio.sleep(3)
+                        await self.page.evaluate("window.scrollTo(0, 0)")
+                        await asyncio.sleep(3)
+                        logger.info("頁面滾動完成")
+                    except Exception as scroll_error:
+                        logger.warning(f"頁面滾動失敗: {scroll_error}")
                     
                     # 再次嘗試等待選擇器
-                    await self.page.wait_for_selector(selector, timeout=30000)
+                    await self.page.wait_for_selector(selector, timeout=45000)
                     logger.info("滾動後找到選擇器")
                     
                 except Exception as e2:
                     logger.warning(f"滾動策略失敗: {e2}")
                     try:
                         logger.info("嘗試最終等待策略...")
-                        await asyncio.sleep(10)
-                        await self.page.wait_for_selector(selector, timeout=30000)
+                        await asyncio.sleep(15)
+                        
+                        # 嘗試檢查頁面內容
+                        page_content = await self.page.content()
+                        logger.info(f"頁面內容長度: {len(page_content)}")
+                        
+                        # 檢查是否有任何鏈接
+                        all_links = await self.page.query_selector_all("a")
+                        logger.info(f"頁面中找到 {len(all_links)} 個鏈接")
+                        
+                        # 檢查是否有任何包含 'announcements' 的鏈接
+                        announcement_links = await self.page.query_selector_all("a[href*='announcements']")
+                        logger.info(f"頁面中找到 {len(announcement_links)} 個公告鏈接")
+                        
+                        await self.page.wait_for_selector(selector, timeout=45000)
                         logger.info("最終等待後找到選擇器")
+                        
                     except Exception as e3:
                         logger.error(f"所有等待策略都失敗: {e3}")
                         return []
@@ -286,7 +318,7 @@ class GateFuturesScraper:
         except Exception as e:
             logger.error(f"爬取期貨上市信息失敗: {e}")
             return []
-
+    
     def is_new_listing(self, item: Dict[str, Any]) -> bool:
         """檢查單條數據是否為新的期貨上市
         
